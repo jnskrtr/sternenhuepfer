@@ -1058,9 +1058,11 @@ function hurtPlayer(){
   if(game.lives<=0) gameOver();
 }
 function respawnFromPit(){
-  game.lives--;
+  if(game.state==='over') return;
+  game.continues = Math.max(0, game.continues-1);   // ganzes Leben statt nur Energie
   sfx.hurt();
-  if(game.lives<=0){ gameOver(); return; }
+  if(game.continues<=0){ showFinalGameOver('IN DEN ABGRUND GESTÜRZT!'); return; }
+  game.lives=6;                                     // Energie am Checkpoint wieder voll
   player.x=game.checkX; player.y=game.checkY; player.vx=0; player.vy=0; player.inv=1.2; player.airJumps=0; player.ride=null; player.rescueReady=true;
   game.camX=Math.max(0,Math.min(level.width-W, player.x - W*0.4));
 }
@@ -1191,7 +1193,7 @@ function update(dt){
     if(u.got) continue;
     if(Math.abs(pcx-u.x)<28 && Math.abs(pcy-u.y)<32){
       u.got=true; p.inv=Math.max(p.inv,0.3); sfx.power();
-      if(u.type==='life'){ game.lives=Math.min(game.lives+1,9); game.score+=200; addParticles(u.x,u.y,'#ff5d8f',20); }
+      if(u.type==='life'){ game.lives=Math.min(game.lives+1,6); game.score+=200; addParticles(u.x,u.y,'#ff5d8f',20); }
       else if(u.type==='freeze'){ p.freezeCharges=Math.min(p.freezeCharges+2,3); game.score+=300; addParticles(u.x,u.y,'#aef2ff',20); }
       else { p.powers.add(u.type); if(u.type==='rainbow') p.airJumps=1; game.score+=300;
              addParticles(u.x,u.y, u.type==='gold'?'#ffd23f':u.type==='rainbow'?'#fff':'#3ff0ff',18); }
@@ -1888,7 +1890,7 @@ function showOverlay(name){
   if(name) ov[name].classList.add('show');
 }
 function startGame(){
-  game.levelIndex=0; game.lives=8; game.continues=3; game.score=0; game.coins=0;
+  game.levelIndex=0; game.lives=6; game.continues=3; game.score=0; game.coins=0;
   game.paused=false; el('pause').classList.remove('show');
   loadLevel(0); game.state='play'; showOverlay(null);
   if(AC&&AC.state==='suspended') AC.resume();
@@ -1918,7 +1920,8 @@ function nextLevel(){
     setTimeout(()=>{ try{el('winName').focus();}catch(e){} },60);
     return;
   }
-  game.levelIndex++; game.lives=8; game.continues=3; loadLevel(game.levelIndex); game.state='play'; showOverlay(null);
+  // Energie bleibt erhalten (kein Auffüllen); Continues je Welt wieder 3
+  game.levelIndex++; game.continues=3; loadLevel(game.levelIndex); game.state='play'; showOverlay(null);
   startMusic(game.levelIndex);
 }
 function magicKill(){
@@ -1929,37 +1932,42 @@ function magicKill(){
   game.lives=0;
   gameOver('VOM ZAUBER GETROFFEN!');
 }
-function gameOver(reason){
+function showContinueScreen(reason){
+  // Noch Leben übrig -> in DERSELBEN Welt weitermachen, kein Highscore-Eintrag
+  game.state='over'; stopMusic();
+  const head = reason ? `<span style="color:#ff5d8f">${reason}</span><br>` : '';
+  el('over').querySelector('h1').textContent='GESTORBEN!';
+  el('overSub').innerHTML=`${head}Du kamst bis<br>${level.name}<br><span style="color:#7fe0ff">Noch ${game.continues} Leben in dieser Welt</span>`;
+  el('overNameRow').style.display='none';
+  el('overList').style.display='none';
+  el('retryBtn').textContent='WEITER IN DIESER WELT';
+  showOverlay('over');
+}
+function showFinalGameOver(reason){
+  // Alle Leben weg -> Highscore eintragen, zurück zu Welt 1
   if(game.state==='over') return;
   game.state='over'; stopMusic();
-  game.continues = Math.max(0, game.continues-1);   // ein "Leben" abziehen
   const head = reason ? `<span style="color:#ff5d8f">${reason}</span><br>` : '';
-  const h1 = el('over').querySelector('h1');
-  if(game.continues>0){
-    // Noch Versuche übrig -> in DERSELBEN Welt weitermachen, kein Highscore-Eintrag
-    h1.textContent='GESTORBEN!';
-    el('overSub').innerHTML=`${head}Du kamst bis<br>${level.name}<br><span style="color:#7fe0ff">Noch ${game.continues} ${game.continues===1?'Leben':'Leben'} in dieser Welt</span>`;
-    el('overNameRow').style.display='none';
-    el('overList').style.display='none';
-    el('retryBtn').textContent='WEITER IN DIESER WELT';
-  } else {
-    // Keine Versuche mehr -> Highscore eintragen, zurück zu Welt 1
-    h1.textContent='GAME OVER';
-    el('overSub').innerHTML=`${head}Alle Leben verbraucht!<br>Du kamst bis<br>${level.name}<br>★ ${game.coins} &nbsp; PKT ${game.score}`;
-    el('overNameRow').style.display='flex';
-    el('overName').value='';
-    el('overList').style.display='';
-    renderScoreList(el('overList'), null);
-    el('retryBtn').textContent='ZURÜCK ZU WELT 1';
-    setTimeout(()=>{ try{el('overName').focus();}catch(e){} },60);
-  }
+  el('over').querySelector('h1').textContent='GAME OVER';
+  el('overSub').innerHTML=`${head}Alle Leben verbraucht!<br>Du kamst bis<br>${level.name}<br>★ ${game.coins} &nbsp; PKT ${game.score}`;
+  el('overNameRow').style.display='flex';
+  el('overName').value='';
+  el('overList').style.display='';
+  renderScoreList(el('overList'), null);
+  el('retryBtn').textContent='ZURÜCK ZU WELT 1';
   showOverlay('over');
+  setTimeout(()=>{ try{el('overName').focus();}catch(e){} },60);
+}
+function gameOver(reason){
+  if(game.state==='over') return;
+  game.continues = Math.max(0, game.continues-1);   // ein "Leben" abziehen
+  if(game.continues>0) showContinueScreen(reason); else showFinalGameOver(reason);
 }
 el('startBtn').onclick=startGame;
 el('retryBtn').onclick=()=>{
   if(game.continues>0){
-    // Gleiche Welt erneut, volle Energie (8)
-    game.lives=8;
+    // Gleiche Welt erneut, volle Energie (6)
+    game.lives=6;
     loadLevel(game.levelIndex); game.state='play'; showOverlay(null);
     if(AC&&AC.state==='suspended') AC.resume();
     startMusic(game.levelIndex);
