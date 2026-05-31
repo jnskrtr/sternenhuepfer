@@ -173,6 +173,8 @@
     <div class="tbtn pausebtn" data-k="pause">⏸</div>
     <div id="stick"><div id="stickKnob"></div></div>
     <div class="pad right">
+      <div class="tbtn" id="spinBtn" data-k="spin" style="display:none"></div>
+      <div class="tbtn" id="fireBtn" data-k="fire" style="display:none"></div>
       <div class="tbtn" id="freezeBtn" data-k="freeze" style="display:none"></div>
       <div class="tbtn" data-k="jump">⤒</div>
     </div>
@@ -186,10 +188,10 @@
   <!-- Titel -->
   <div id="title" class="overlay">
     <h1>STERNENHÜPFER</h1>
-    <div class="sub">Ein Jump &amp; Run in 10 Welten</div>
-    <div class="small">Sammle Münzen ★ Weiche Gegnern &amp; Geschossen aus<br>Besiege den Boss jeder Welt · Checkpoints helfen dir<br>Türkis = Gleitpfau · Gold = Höher · Regenbogen = Doppelsprung</div>
+    <div class="sub">Ein Jump &amp; Run in 13 Welten</div>
+    <div class="small">Sammle Münzen ★ Weiche Gegnern &amp; Geschossen aus<br>Besiege den Boss jeder Welt · Checkpoints helfen dir<br>Türkis = Gleiten · Gold = Höher · Regenbogen = Doppelsprung<br>🔥 Feuer = Feuerbälle · ✷ Drehstern = Gegner wegwirbeln</div>
     <button class="btn" id="startBtn">SPIEL STARTEN</button>
-    <div class="keys"><kbd>◀ ▶</kbd> / <kbd>A D</kbd> laufen &nbsp;•&nbsp; <kbd>Leer</kbd> / <kbd>W</kbd> / <kbd>↑</kbd> springen<br>Auf Gegner springen = besiegen &nbsp;•&nbsp; <kbd>P</kbd> Pause<br><kbd>X</kbd> / <kbd>↻</kbd> Drehattacke &amp; Schweben (mit Türkis-Stern)</div>
+    <div class="keys"><kbd>◀ ▶</kbd> / <kbd>A D</kbd> laufen &nbsp;•&nbsp; <kbd>Leer</kbd> / <kbd>W</kbd> / <kbd>↑</kbd> springen<br>Auf Gegner springen = besiegen &nbsp;•&nbsp; <kbd>P</kbd> Pause<br><kbd>X</kbd> Feuerball &nbsp;•&nbsp; <kbd>C</kbd> Drehstern &nbsp;•&nbsp; <kbd>F</kbd> Einfrieren</div>
     <div class="hstitle">★ BESTENLISTE ★</div>
     <div class="hslist" id="titleList"></div>
   </div>
@@ -233,7 +235,7 @@
   <!-- Sieg -->
   <div id="win" class="overlay">
     <h1>GESCHAFFT! 🌟</h1>
-    <div class="sub">Du hast alle zehn Welten gemeistert<br>und das Böse Pfauen-Paar besiegt —<br>der Künstler ist vom Zauber befreit!</div>
+    <div class="sub">Du hast alle Welten und den<br>SUPERFINALTEST gemeistert — das Böse<br>Pfauen-Paar ist besiegt, der Künstler befreit!</div>
     <div class="small" id="winScore"></div>
     <div class="namerow" id="winNameRow">
       <input class="nameinput" id="winName" maxlength="10" placeholder="DEIN NAME" autocomplete="off" spellcheck="false">
@@ -251,6 +253,7 @@ const cv = document.getElementById('game');
 const ctx = cv.getContext('2d');
 const W = 960, H = 540;            // logische Spielauflösung (bleibt konstant)
 const GROUND_Y = 460, GROUND_H = 120;
+const MAX_LIVES = 6;               // Energie (Herzen) ist hart auf 6 gedeckelt
 
 /* ---------- AUFLÖSUNG / SKALIERUNG (scharf & Vollbild) ---------- */
 // Backing-Store an die echte Anzeigegröße koppeln, damit Vektorgrafik
@@ -307,7 +310,8 @@ const sfx={
   spin(){beep(680,0.07,'sawtooth',0.05); setTimeout(()=>beep(1020,0.08,'sawtooth',0.05),55);},
   charge(){beep(150,0.55,'sawtooth',0.05);},
   zap(){beep(80,0.3,'sawtooth',0.09); setTimeout(()=>beep(1500,0.12,'square',0.07),40);},
-  freeze(){[1320,990,740,560].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'sine',0.05),i*55));}
+  freeze(){[1320,990,740,560].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'sine',0.05),i*55));},
+  fire(){beep(420,0.05,'sawtooth',0.05); setTimeout(()=>beep(280,0.09,'sawtooth',0.05),35);}
 };
 
 /* ---------- HINTERGRUNDMUSIK (prozedural, je Welt eine eigene) ---------- */
@@ -330,7 +334,10 @@ const MUSIC_TRACKS=[
   trk(134,'square','A5 G5 E5 G5 A5 0 B5 A5 G5 E5 D5 E5 G5 0 E5 0','A3 A3 E3 E3 F3 F3 G3 G3'),      // 7 Pink-Nebel – verspielt
   trk(104,'triangle','G4 B4 D5 B4 C5 E5 C5 0 A4 C5 E5 D5 B4 G4 0 0','G3 G3 C4 C4 A3 A3 D4 D4'),    // 8 Galaxien – schwebend
   trk(150,'square','G5 G5 A5 B5 C5 0 E5 G5 F5 E5 D5 C5 D5 E5 C5 0','C3 G3 F3 G3 C3 G3 F3 G3'),     // 9 Sonne – energetisch
-  trk(128,'square','A5 E5 A5 B5 C5 B4 A4 0 F5 E5 D5 C5 B4 A4 E5 0','A3 A3 F3 F3 G3 G3 E3 E3')      // 10 Finale – episch
+  trk(128,'square','A5 E5 A5 B5 C5 B4 A4 0 F5 E5 D5 C5 B4 A4 E5 0','A3 A3 F3 F3 G3 G3 E3 E3'),     // 10 Finale – episch
+  trk(124,'square','C5 G5 E5 G5 B5 0 G5 E5 F5 A5 G5 E5 D5 G5 C5 0','C3 G3 A3 E3 F3 C3 G3 G3'),     // 11 Hauptgalaxie 1 – erhaben
+  trk(132,'square','E5 G5 B5 G5 A5 0 F5 A5 G5 E5 D5 E5 C5 0 G4 0','A3 E3 F3 C3 D3 A3 E3 E3'),       // 12 Hauptgalaxie 2 – schwungvoll
+  trk(142,'sawtooth','A4 C5 E5 A5 G5 E5 C5 0 F5 A5 G5 F5 E5 C5 A4 0','A3 A3 F3 F3 G3 G3 E3 E3')     // 13 Superfinaltest – dramatisch
 ];
 // Eigene Titelmusik (Startbildschirm) – heroisch, eingängig
 const TITLE_TRACK = trk(120,'square','G4 C5 E5 G5 E5 C5 D5 0 F5 E5 D5 C5 D5 E5 C5 0','C3 G3 A3 F3 C3 G3 F3 G3');
@@ -674,6 +681,114 @@ const LEVELS = [
     checkpoints:[ cp(1440), cp(2760) ],
     bossX:3880,
   },
+  { // 11 — Hauptgalaxie 1
+    name:"Hauptgalaxie — LEVEL 1",
+    boss:"Pinselo, der entfesselte Künstler", bossType:"artist", bossHp:7,
+    width:5200,
+    theme:{ sky:["#05030f","#1a0a44","#3a1a7a","#7a3df0"], ground:"#3a1a7a", groundDark:"#22104a", accent:"#9af7ea", deco:"main" },
+    start:{x:80,y:380},
+    platforms:[
+      ...gnd([[0,520],[640,900],[1020,1280],[1400,1680],[1820,2080],[2220,2520],[2680,2980],[3120,3420],[3560,3860],[4000,4320],[4460,5200]]),
+      plat(560,350,120), plat(820,280,120), plat(1080,220,110), plat(1340,300,110),
+      plat(1600,240,120), plat(1900,320,110), plat(2160,250,120), plat(2440,320,110),
+      plat(2760,250,120), plat(3060,320,110), plat(3340,250,120), plat(3640,300,110),
+      plat(3940,240,120), plat(4240,320,110), plat(4520,250,120),
+      spring(1340,GROUND_Y-18), mplat(1740,260,100,{ax:0,ay:90,speed:1.4}),
+      mplat(2580,260,100,{ax:110,ay:0,speed:1.3}), cplat(3000,360,90), spring(3500,GROUND_Y-18),
+      mplat(4100,250,100,{ax:0,ay:80,speed:1.6}),
+    ],
+    coins:[
+      ...coinArc(560,320,4), ...coinRow(820,250,3), ...coinArc(1080,190,3),
+      ...coinRow(1600,210,4), ...coinArc(1900,290,3), ...coinRow(2160,220,3),
+      ...coinArc(2760,220,4), ...coinRow(3060,290,3), ...coinArc(3340,220,3),
+      ...coinRow(3640,270,4), ...coinArc(3940,210,3), ...coinRow(4240,290,3),
+    ],
+    enemies:[
+      foe(680,GROUND_Y-34,640,900,{speed:80}),
+      foe(1100,GROUND_Y-34,1020,1280,{type:'hopper',speed:80}),
+      foe(1560,210,1480,1680,{type:'zoomer',fly:true,speed:160}),
+      foe(1950,GROUND_Y-34,1820,2080,{type:'shooter',speed:55}),
+      foe(2350,GROUND_Y-34,2220,2520,{type:'spiker',speed:85}),
+      foe(2820,GROUND_Y-34,2680,2980,{type:'shooter',speed:55}),
+      foe(3250,GROUND_Y-34,3120,3420,{type:'hopper',speed:85}),
+      foe(3700,230,3560,3860,{fly:true,speed:120}),
+      foe(4150,GROUND_Y-34,4000,4320,{type:'shooter',speed:60}),
+    ],
+    powerups:[{x:300,y:370,type:'turquoise'},{x:1700,y:350,type:'fire'},{x:2880,y:360,type:'life'},{x:3780,y:360,type:'spin'},{x:4600,y:360,type:'rainbow'}],
+    checkpoints:[ cp(1400), cp(2680), cp(4000) ],
+    bossX:4900,
+  },
+  { // 12 — Hauptgalaxie 2 (Tor zum Superfinaltest: ALLE Sterne sammeln!)
+    name:"Hauptgalaxie — LEVEL 2",
+    boss:"Pfaunilde, die Pfauenkönigin", bossType:"queen", bossHp:8,
+    gateToFinale:true,
+    width:5600,
+    theme:{ sky:["#04020c","#220a55","#5a1aa0","#ff7ad0"], ground:"#5a1aa0", groundDark:"#33105e", accent:"#ffd23f", deco:"main" },
+    start:{x:80,y:380},
+    platforms:[
+      ...gnd([[0,560],[700,980],[1100,1380],[1500,1780],[1920,2200],[2340,2620],[2760,3060],[3200,3500],[3640,3940],[4080,4380],[4520,4820],[4960,5600]]),
+      plat(580,350,120), plat(860,280,110), plat(1140,220,110), plat(1420,300,110),
+      plat(1700,240,120), plat(1980,320,110), plat(2260,250,120), plat(2540,320,110),
+      plat(2840,250,120), plat(3120,320,110), plat(3420,250,120), plat(3700,300,110),
+      plat(3980,240,120), plat(4260,320,110), plat(4560,250,120), plat(4840,300,110),
+      spring(1460,GROUND_Y-18), mplat(1840,260,100,{ax:0,ay:90,speed:1.4}),
+      mplat(2680,260,100,{ax:110,ay:0,speed:1.3}), cplat(3080,360,90),
+      spring(3580,GROUND_Y-18), mplat(4420,250,100,{ax:0,ay:80,speed:1.6}),
+    ],
+    coins:[
+      ...coinArc(580,320,4), ...coinRow(860,250,3), ...coinArc(1140,190,3),
+      ...coinRow(1700,210,4), ...coinArc(1980,290,3), ...coinRow(2260,220,3),
+      ...coinArc(2840,220,4), ...coinRow(3120,290,3), ...coinArc(3420,220,3),
+      ...coinRow(3700,270,4), ...coinArc(3980,210,3), ...coinRow(4260,290,3),
+      ...coinArc(4560,220,4), ...coinRow(4840,270,3),
+    ],
+    enemies:[
+      foe(740,GROUND_Y-34,700,980,{speed:85}),
+      foe(1180,GROUND_Y-34,1100,1380,{type:'shooter',speed:55}),
+      foe(1620,210,1540,1780,{type:'zoomer',fly:true,speed:165}),
+      foe(2020,GROUND_Y-34,1920,2200,{type:'hopper',speed:90}),
+      foe(2400,GROUND_Y-34,2340,2620,{type:'shooter',speed:60}),
+      foe(2880,GROUND_Y-34,2760,3060,{type:'spiker',speed:90}),
+      foe(3280,GROUND_Y-34,3200,3500,{type:'hopper',speed:90}),
+      foe(3760,230,3640,3940,{fly:true,speed:130}),
+      foe(4150,GROUND_Y-34,4080,4380,{type:'shooter',speed:60}),
+      foe(4620,GROUND_Y-34,4520,4820,{type:'spiker',speed:90}),
+    ],
+    powerups:[{x:300,y:370,type:'fire'},{x:1800,y:350,type:'spin'},{x:2900,y:360,type:'life'},{x:3900,y:360,type:'turquoise'},{x:5000,y:360,type:'rainbow'}],
+    checkpoints:[ cp(1500), cp(2760), cp(4080) ],
+    bossX:5300,
+  },
+  { // 13 — Superfinaltest: Abzeichenparade (Künstler + Königin, wechselnde Galaxie)
+    name:"SUPERFINALTEST — ABZEICHENPARADE",
+    boss:"Pfaunilde & Pinselo · Das letzte Duell", bossType:"duo", bossHp:18,
+    finale:true,
+    width:4800,
+    theme:{ sky:["#0a0420","#3a1d6e","#7a1452","#ff5d8f"], ground:"#7a1452", groundDark:"#4a0c33", accent:"#ffd23f", deco:"finale" },
+    start:{x:80,y:380},
+    platforms:[
+      ...gnd([[0,560],[700,980],[1100,1420],[1560,1880],[2020,2360],[2500,2860],[3000,3360],[3500,4800]]),
+      plat(600,340,120), plat(900,270,110), plat(1200,210,110), plat(1500,290,110),
+      plat(1800,230,120), plat(2120,310,110), plat(2440,250,120), plat(2760,310,110),
+      plat(3080,250,120), plat(3400,300,110),
+      spring(1460,GROUND_Y-18), mplat(1640,270,100,{ax:0,ay:90,speed:1.5}),
+      mplat(2380,250,100,{ax:110,ay:0,speed:1.3}), cplat(2820,350,90), spring(3380,GROUND_Y-18),
+    ],
+    coins:[
+      ...coinArc(600,310,3), ...coinRow(900,240,3), ...coinArc(1200,180,3),
+      ...coinRow(1800,200,3), ...coinArc(2120,280,3), ...coinRow(2440,220,3),
+      ...coinArc(3080,220,3), ...coinRow(3400,270,3),
+    ],
+    enemies:[
+      foe(740,GROUND_Y-34,700,980,{type:'shooter',speed:60}),
+      foe(1300,180,1220,1420,{type:'zoomer',fly:true,speed:180}),
+      foe(1700,GROUND_Y-34,1560,1880,{type:'hopper',speed:95}),
+      foe(2180,GROUND_Y-34,2020,2360,{type:'spiker',speed:95}),
+      foe(2640,GROUND_Y-34,2500,2860,{type:'shooter',speed:65}),
+    ],
+    powerups:[{x:300,y:370,type:'fire'},{x:1500,y:360,type:'spin'},{x:2500,y:360,type:'life'},{x:3300,y:360,type:'rainbow'}],
+    checkpoints:[ cp(1560), cp(3000) ],
+    bossX:4500,
+  },
 ];
 
 /* ---------- ZUSTAND ---------- */
@@ -682,15 +797,16 @@ const game = {
   paused:false,
   badge:false,        // Abgrundshochsprung (rotes Abzeichen, im Pausenmenü)
   levelIndex:0,
-  lives:5,
+  lives:MAX_LIVES,
   score:0,
   coins:0,
   camX:0,
   freezeT:0,          // Einfrier-Timer (Freeze-Power-up)
   continues:3,        // "Leben" nach Game Over: 3 Versuche je Welt, dann zurück zu Welt 1
+  gatePassed:true,    // Tor zum Superfinaltest (alle Sterne im Hauptgalaxie-2-Level)
   checkX:80, checkY:380,
 };
-let level, player, foes, coins, powerups, boss, particles=[], platforms=[], bossShots=[], checkpoints=[];
+let level, player, foes, coins, powerups, boss, particles=[], platforms=[], bossShots=[], playerShots=[], checkpoints=[];
 
 function makeBoss(L){
   const type=L.bossType||'generic';
@@ -710,6 +826,7 @@ function makeBoss(L){
   if(type==='sun'){ const w=120,h=120,baseY=GROUND_Y-h-90; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-160,max:x+140,speed:55,speedMax:120,charge:0}); }
   if(type==='duo'){ const w=170,h=124,baseY=GROUND_Y-h-26; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-180,max:x+150,speed:60,speedMax:120,
       casting:false,castWarn:0,beamT:0,spellX:x,castCd:2.6}); }
+  if(type==='queen'){ const w=104,h=92,baseY=GROUND_Y-h-130; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-240,max:x+200,speed:120,speedMax:215,flap:0,mode:'',swoopT:0}); }
   const w=84,h=92; return Object.assign(base,{x,y:GROUND_Y-h,w,h,min:x-180,max:x+180,speed:90,hopT:0}); // generic
 }
 
@@ -749,6 +866,7 @@ function updateBoss(dt){
     case 'floater': updateFloaterBoss(dt); break;
     case 'sun': updateSunBoss(dt); break;
     case 'duo': updateDuoBoss(dt); break;
+    case 'queen': updateQueenBoss(dt); break;
     default: updateGenericBoss(dt);
   }
 }
@@ -881,6 +999,29 @@ function updateDuoBoss(dt){
     if(boss.castCd<=0){ boss.casting=true; boss.castWarn=1.3; boss.spellX=p.x+p.w/2; sfx.charge(); }
   }
 }
+function updateQueenBoss(dt){
+  const p=player; boss.flap+=dt*8; boss.vulnerable=true; boss.warn=null;
+  if(boss.mode==='swoop'){
+    // Sturzflug auf den Spieler zu und wieder hoch
+    boss.swoopT+=dt;
+    boss.x += boss.dir*boss.speed*1.5*dt; boss.x=Math.max(boss.min,Math.min(boss.max,boss.x));
+    const k=Math.sin(Math.min(1,boss.swoopT/1.0)*Math.PI);
+    boss.y=boss.baseY + ((GROUND_Y-boss.h-20)-boss.baseY)*k;
+    boss.warn='⚠ SIE STÜRZT HERAB!';
+    if(boss.swoopT>=1.0){ boss.mode=''; boss.phase=0; boss.atkT=1.4+Math.random()*0.6; }
+  } else {
+    bossPatrolX(dt); boss.phase+=dt*1.6; boss.y=boss.baseY+Math.sin(boss.phase)*40;
+    boss.atkT-=dt;
+    if(boss.atkT<=0){ boss.atkT=1.6+Math.random()*0.6;
+      // Federfächer gezielt Richtung Spieler
+      const cx=boss.x+boss.w/2, cy=boss.y+boss.h*0.5;
+      const ang=Math.atan2((p.y+p.h/2)-cy,(p.x+p.w/2)-cx);
+      for(let i=-2;i<=2;i++){ const a=ang+i*0.26; bossShoot(cx,cy, Math.cos(a)*170, Math.sin(a)*170, '#ff5d8f', {grav:120,r:7,life:3.2}); }
+      sfx.spin();
+      if(Math.random()<0.45){ boss.mode='swoop'; boss.swoopT=0; boss.dir=Math.sign((p.x+p.w/2)-(boss.x+boss.w/2))||boss.dir; }
+    }
+  }
+}
 function updateGenericBoss(dt){
   bossGravity(dt); bossPatrolX(dt); boss.hopT-=dt;
   if(boss.onGround && boss.hopT<=0){ boss.vy=-520; boss.onGround=false; boss.hopT=1.4+Math.random(); }
@@ -891,7 +1032,8 @@ function loadLevel(i){
   level = LEVELS[i];
   player = { x:level.start.x, y:level.start.y, w:30, h:38, vx:0, vy:0,
              onGround:false, facing:1, inv:0, coyote:0, jbuf:0, squash:1, anim:0,
-             powers:new Set(), gliding:false, spinT:0, spinCd:0, airJumps:0, freezeCharges:0, ride:null, press:0, rescueReady:true };
+             powers:new Set(), gliding:false, spinT:0, spinCd:0, airJumps:0, freezeCharges:0,
+             fireCharges:0, fireCd:0, spinCharges:0, ride:null, press:0, rescueReady:true };
   platforms = level.platforms.map(p=>Object.assign({},p));
   foes = level.enemies.map(e=>Object.assign({},e,{dead:false,phase:Math.random()*6}));
   coins = level.coins.map(c=>({x:c.x,y:c.y,got:false,t:Math.random()*6}));
@@ -901,14 +1043,14 @@ function loadLevel(i){
   game.freezeT=0;
   checkpoints = (level.checkpoints||[]).map(c=>({x:c.x, y:GROUND_Y-player.h-4, on:false}));
   boss = makeBoss(level);
-  particles=[]; bossShots=[];
+  particles=[]; bossShots=[]; playerShots=[];
   game.checkX=level.start.x; game.checkY=level.start.y;
   game.camX=0;
 }
 
 /* ---------- EINGABE ---------- */
 const keys={left:false,right:false,jump:false};
-let jumpEdge=false, freezeEdge=false;
+let jumpEdge=false, freezeEdge=false, fireEdge=false, spinEdge=false;
 function setKey(k,v){
   if(k==='left')keys.left=v;
   else if(k==='right')keys.right=v;
@@ -922,6 +1064,8 @@ addEventListener('keydown',e=>{
   else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D') setKey('right',true);
   else if(e.key===' '||e.key==='Spacebar'||e.key==='ArrowUp'||e.key==='w'||e.key==='W') setKey('jump',true);
   else if(e.key==='f'||e.key==='F'||e.key==='Shift') freezeEdge=true;
+  else if(e.key==='x'||e.key==='X'||e.key==='k'||e.key==='K') fireEdge=true;   // Feuerball
+  else if(e.key==='c'||e.key==='C'||e.key==='y'||e.key==='Y') spinEdge=true;   // Drehstern
   else if(e.key==='m'||e.key==='M'){ muted=!muted; }
   else if(e.key==='p'||e.key==='P'||e.key==='Escape'){ togglePause(); }
 });
@@ -940,14 +1084,14 @@ function applyTouchUI(){
   document.body.classList.toggle('touch', show);
 }
 // Gerät benutzt Touch -> Steuerung einblenden;  Tastatur benutzt -> ausblenden (nur im AUTO-Modus)
-const GAME_KEYS=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','Spacebar','a','A','d','D','w','W','x','X','k','K'];
+const GAME_KEYS=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','Spacebar','a','A','d','D','w','W','x','X','k','K','c','C','y','Y'];
 addEventListener('touchstart', ()=>{ if(!lastInputTouch){ lastInputTouch=true; if(touchMode==='auto') applyTouchUI(); } }, {passive:true});
 addEventListener('keydown', e=>{ if(lastInputTouch && GAME_KEYS.includes(e.key)){ lastInputTouch=false; if(touchMode==='auto') applyTouchUI(); } });
 applyTouchUI();
 document.querySelectorAll('.tbtn').forEach(b=>{
   const k=b.dataset.k;
-  const on=e=>{e.preventDefault(); if(k==='freeze') freezeEdge=true; else if(k==='pause') togglePause(); else setKey(k,true);};
-  const off=e=>{e.preventDefault(); if(k!=='freeze'&&k!=='pause') setKey(k,false);};
+  const on=e=>{e.preventDefault(); if(k==='freeze') freezeEdge=true; else if(k==='fire') fireEdge=true; else if(k==='spin') spinEdge=true; else if(k==='pause') togglePause(); else setKey(k,true);};
+  const off=e=>{e.preventDefault(); if(k!=='freeze'&&k!=='fire'&&k!=='spin'&&k!=='pause') setKey(k,false);};
   b.addEventListener('touchstart',on,{passive:false});
   b.addEventListener('touchend',off,{passive:false});
   b.addEventListener('touchcancel',off,{passive:false});
@@ -958,12 +1102,12 @@ document.querySelectorAll('.tbtn').forEach(b=>{
 (function(){
   const stick=document.getElementById('stick'), knob=document.getElementById('stickKnob');
   if(!stick||!knob) return;
-  let id=null, cx=0, cy=0, R=1;
+  let id=null, cx=0, cy=0, R=1, curDir=0;
   function start(e){
     e.preventDefault();
     const r=stick.getBoundingClientRect();
     cx=r.left+r.width/2; cy=r.top+r.height/2; R=r.width*0.42;
-    id=e.pointerId; try{ stick.setPointerCapture(id); }catch(_){}
+    id=e.pointerId; curDir=0; try{ stick.setPointerCapture(id); }catch(_){}
     move(e);
   }
   function move(e){
@@ -973,13 +1117,18 @@ document.querySelectorAll('.tbtn').forEach(b=>{
     const d=Math.hypot(dx,dy) || 1;
     if(d>R){ dx=dx/d*R; dy=dy/d*R; }
     knob.style.transform='translate('+dx.toFixed(1)+'px,'+dy.toFixed(1)+'px)';
-    const dz=R*0.30;
-    setKey('left',  dx<-dz);
-    setKey('right', dx> dz);
+    // Hysterese: Richtung rastet erst ab 34% Auslenkung ein und löst erst unter 16% –
+    // dazwischen bleibt die letzte Richtung erhalten -> kein Zappeln/Springen mehr.
+    const onDZ=R*0.34, offDZ=R*0.16;
+    if(dx >  onDZ) curDir=1;
+    else if(dx < -onDZ) curDir=-1;
+    else if(Math.abs(dx) < offDZ) curDir=0;
+    setKey('right', curDir>0);
+    setKey('left',  curDir<0);
   }
   function end(e){
     if(id!==null && e.pointerId!==id) return;
-    id=null;
+    id=null; curDir=0;
     knob.style.transform='translate(0,0)';
     setKey('left',false); setKey('right',false);
   }
@@ -1062,7 +1211,7 @@ function respawnFromPit(){
   game.continues = Math.max(0, game.continues-1);   // ganzes Leben statt nur Energie
   sfx.hurt();
   if(game.continues<=0){ showFinalGameOver('IN DEN ABGRUND GESTÜRZT!'); return; }
-  game.lives=6;                                     // Energie am Checkpoint wieder voll
+  game.lives=MAX_LIVES;                             // Energie am Checkpoint wieder voll
   player.x=game.checkX; player.y=game.checkY; player.vx=0; player.vy=0; player.inv=1.2; player.airJumps=0; player.ride=null; player.rescueReady=true;
   game.camX=Math.max(0,Math.min(level.width-W, player.x - W*0.4));
 }
@@ -1113,6 +1262,39 @@ function update(dt){
   }
   if(game.freezeT>0) game.freezeT-=dt;
 
+  // Feuer-Power-up: Feuerball schießen
+  if(p.fireCd>0) p.fireCd-=dt;
+  if(fireEdge){
+    if(p.fireCharges>0 && p.fireCd<=0){
+      p.fireCharges--; p.fireCd=0.32; sfx.fire();
+      const dir=p.facing||1;
+      playerShots.push({x:p.x+p.w/2+dir*16, y:p.y+p.h*0.45, vx:dir*540, vy:-30, r:9, life:1.5, spin:0});
+      addParticles(p.x+p.w/2+dir*16,p.y+p.h*0.45,'#ff9f43',6);
+    }
+    fireEdge=false;
+  }
+
+  // Drehstern-Power-up: Wirbel, schleudert Gegner weg & wehrt Geschosse ab
+  if(p.spinCd>0) p.spinCd-=dt;
+  if(p.spinT>0) p.spinT-=dt;
+  if(spinEdge){
+    if(p.spinCharges>0 && p.spinCd<=0 && p.spinT<=0){
+      p.spinCharges--; p.spinT=0.45; p.spinCd=0.55; sfx.spin();
+      addParticles(p.x+p.w/2,p.y+p.h/2,'#ffd23f',18);
+    }
+    spinEdge=false;
+  }
+  if(p.spinT>0){
+    const cx0=p.x+p.w/2, cy0=p.y+p.h/2, RAD=78;
+    for(const f of foes){ if(f.dead) continue;
+      if(Math.hypot(cx0-(f.x+f.w/2),cy0-(f.y+f.h/2))<RAD){
+        f.dead=true; game.score+=150; sfx.stomp();
+        addParticles(f.x+f.w/2,f.y+f.h/2,'#ffd23f',12);
+      }
+    }
+    for(const s of bossShots){ if(Math.hypot(cx0-s.x,cy0-s.y)<RAD) s.life=0; }
+  }
+
   // bewegliche Plattformen + Mitnahme des Spielers
   updatePlatforms(dt);
   if(p.ride){ p.x += p.ride.dx||0; p.y += p.ride.dy||0; }
@@ -1141,6 +1323,17 @@ function update(dt){
         if(f.y>=f.baseY){ f.y=f.baseY; f.vy=0; f.hopT=(f.hopT||0)-dt; if(f.hopT<=0){ f.vy=-560; f.hopT=0.8+Math.random()*0.6; } }
         f.x += f.dir*f.speed*dt;
         if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
+      } else if(f.type==='shooter'){
+        // Schütze: läuft, hüpft gelegentlich und schießt minimal auf den Spieler
+        f.vy=(f.vy||0)+GRAV*dt; f.y+=f.vy*dt;
+        if(f.y>=f.baseY){ f.y=f.baseY; f.vy=0; f.hopT=(f.hopT||0)-dt; if(f.hopT<=0){ f.vy=-430; f.hopT=1.6+Math.random()*1.1; } }
+        f.x += f.dir*f.speed*dt;
+        if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
+        f.shootT=(f.shootT===undefined?1.4+Math.random():f.shootT)-dt;
+        if(f.shootT<=0){ f.shootT=2.4+Math.random()*1.3;
+          const dx=(p.x+p.w/2)-(f.x+f.w/2), dy=(p.y+p.h/2)-(f.y+f.h*0.4), dist=Math.hypot(dx,dy)||1;
+          if(dist<470){ f.dir=Math.sign(dx)||f.dir; bossShoot(f.x+f.w/2, f.y+f.h*0.35, dx/dist*150, dy/dist*150-30, '#ff7b3a', {grav:150,r:6,life:3}); }
+        }
       } else {
         f.x += f.dir*f.speed*dt;
         if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
@@ -1177,6 +1370,28 @@ function update(dt){
   }
   bossShots=bossShots.filter(s=>s.life>0 && s.y<H+90 && s.x>-120 && s.x<level.width+120);
 
+  // SPIELER-FEUERBÄLLE
+  for(const s of playerShots){
+    s.life-=dt; s.spin+=dt*14; s.vy+=380*dt;   // leichter Bogen
+    s.x+=s.vx*dt; s.y+=s.vy*dt;
+    // Plattformen stoppen den Feuerball
+    for(const pl of platforms){
+      if(pl.kind==='crumble' && pl.state==='gone') continue;
+      if(s.x>pl.x && s.x<pl.x+pl.w && s.y>pl.y && s.y<pl.y+pl.h){ s.life=0; addParticles(s.x,s.y,'#ff9f43',6); break; }
+    }
+    // Gegner verbrennen
+    for(const f of foes){ if(f.dead) continue;
+      if(s.life>0 && Math.abs(s.x-(f.x+f.w/2))<f.w*0.6+s.r && Math.abs(s.y-(f.y+f.h/2))<f.h*0.6+s.r){
+        f.dead=true; s.life=0; game.score+=200; sfx.stomp(); addParticles(f.x+f.w/2,f.y+f.h/2,'#ff9f43',12); break; }
+    }
+    // Boss treffen
+    if(boss && !boss.defeated && boss.vulnerable && s.life>0 && boss.inv<=0 &&
+       Math.abs(s.x-(boss.x+boss.w/2))<boss.w*0.5+s.r && Math.abs(s.y-(boss.y+boss.h/2))<boss.h*0.5+s.r){
+      s.life=0; damageBoss(1);
+    }
+  }
+  playerShots=playerShots.filter(s=>s.life>0 && s.y<H+90 && s.x>game.camX-80 && s.x<game.camX+W+80);
+
   // MÜNZEN
   const pcx=p.x+p.w/2, pcy=p.y+p.h/2;
   for(const c of coins){
@@ -1193,8 +1408,10 @@ function update(dt){
     if(u.got) continue;
     if(Math.abs(pcx-u.x)<28 && Math.abs(pcy-u.y)<32){
       u.got=true; p.inv=Math.max(p.inv,0.3); sfx.power();
-      if(u.type==='life'){ game.lives=Math.min(game.lives+1,6); game.score+=200; addParticles(u.x,u.y,'#ff5d8f',20); }
+      if(u.type==='life'){ game.lives=Math.min(game.lives+1,MAX_LIVES); game.score+=200; addParticles(u.x,u.y,'#ff5d8f',20); }
       else if(u.type==='freeze'){ p.freezeCharges=Math.min(p.freezeCharges+2,3); game.score+=300; addParticles(u.x,u.y,'#aef2ff',20); }
+      else if(u.type==='fire'){ p.fireCharges=Math.min(p.fireCharges+6,9); game.score+=300; addParticles(u.x,u.y,'#ff9f43',20); }
+      else if(u.type==='spin'){ p.spinCharges=Math.min(p.spinCharges+4,6); game.score+=300; addParticles(u.x,u.y,'#ffd23f',20); }
       else { p.powers.add(u.type); if(u.type==='rainbow') p.airJumps=1; game.score+=300;
              addParticles(u.x,u.y, u.type==='gold'?'#ffd23f':u.type==='rainbow'?'#fff':'#3ff0ff',18); }
     }
@@ -1250,6 +1467,33 @@ function bg(){
     for(let i=0;i<cols.length;i++){ ctx.strokeStyle=cols[i];
       ctx.beginPath(); ctx.arc(W*0.5 - cam*0.2, H+120, 330 - i*16, Math.PI, 0); ctx.stroke(); }
     ctx.globalAlpha=1; starfield(cam,0.5,'#ffffff');
+  } else if(t.deco==='main'){
+    // Hauptgalaxie: leuchtender Kern + Spiralarme + Sterne
+    const tm=performance.now()*0.0004, cxg=W*0.5, cyg=150;
+    const rg=ctx.createRadialGradient(cxg,cyg,10,cxg,cyg,320);
+    rg.addColorStop(0,'rgba(255,240,200,.50)'); rg.addColorStop(0.4,'rgba(180,120,255,.22)'); rg.addColorStop(1,'rgba(120,60,255,0)');
+    ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.translate(cxg,cyg); ctx.strokeStyle='rgba(154,247,234,.16)'; ctx.lineWidth=8;
+    for(let arm=0;arm<3;arm++){ ctx.beginPath();
+      for(let i=0;i<40;i++){ const th=tm + arm*Math.PI*2/3 + i*0.18, r=i*7.5; const px=Math.cos(th)*r, py=Math.sin(th)*r*0.55; i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+      ctx.stroke(); }
+    ctx.restore();
+    starfield(cam,0.3,'#cbb6ff'); starfield(cam,0.6,'#ffffff');
+  } else if(t.deco==='finale'){
+    // Letzter Kampf: die Galaxie wechselt immer wieder ihr Aussehen
+    const tnow=performance.now();
+    const palettes=[['#ff5d8f','#9b59d6'],['#3ff0ff','#1e6fb0'],['#ffd23f','#ff5d2a'],['#9af77a','#1f8a5a'],['#ffffff','#7a1452']];
+    const pal=palettes[Math.floor(tnow*0.0005)%palettes.length];
+    const cxg=W*0.5, cyg=160;
+    ctx.save();
+    const rg=ctx.createRadialGradient(cxg,cyg,20,cxg,cyg,340);
+    rg.addColorStop(0,pal[0]); rg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.globalAlpha=0.28+0.10*Math.sin(tnow*0.003); ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+    ctx.translate(cxg,cyg); ctx.strokeStyle=pal[1]; ctx.globalAlpha=0.15; ctx.lineWidth=8;
+    const rot=tnow*0.0006;
+    for(let i=0;i<12;i++){ const a=rot+i/12*Math.PI*2; ctx.beginPath(); ctx.moveTo(Math.cos(a)*40,Math.sin(a)*40); ctx.lineTo(Math.cos(a)*460,Math.sin(a)*460); ctx.stroke(); }
+    ctx.restore();
+    starfield(cam,0.35,pal[0]); starfield(cam,0.65,'#ffffff');
   } else { // void
     starfield(cam,0.3,'#6a4a9a'); starfield(cam,0.6,'#ffb3e6');
     const rg=ctx.createRadialGradient(W*0.7,180,20,W*0.7,180,260);
@@ -1359,6 +1603,19 @@ function drawFoe(f){
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-6,-7,5,0,7); ctx.arc(6,-7,5,0,7); ctx.fill();
     ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(-6+f.dir*1.5,-7,2.4,0,7); ctx.arc(6+f.dir*1.5,-7,2.4,0,7); ctx.fill();
     ctx.strokeStyle='#111'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,3,6,0.1,Math.PI-0.1); ctx.stroke();
+  } else if(f.type==='shooter'){
+    // Schütze: kleiner Kanonen-Kobold mit Glühauge und Lauf
+    const sq=f.vy<0?1.1:(f.vy>200?0.92:1);
+    ctx.fillStyle='#0e0820'; ctx.fillRect(-12,10,8,5); ctx.fillRect(4,10,8,5);
+    ctx.fillStyle='#5a2da0'; ctx.beginPath(); ctx.ellipse(0,0,15*sq,14/sq,0,0,7); ctx.fill();
+    ctx.fillStyle='#3a1a6e'; ctx.beginPath(); ctx.ellipse(0,3,9,8,0,0,7); ctx.fill();
+    // Kanonenlauf in Blickrichtung
+    ctx.fillStyle='#1a1030'; ctx.fillRect(f.dir>0?6:-16,-4,10,7);
+    ctx.fillStyle='#ff7b3a'; ctx.beginPath(); ctx.arc(f.dir>0?16:-16,-1,2.6,0,7); ctx.fill();
+    // großes Glühauge
+    ctx.fillStyle='#ffd23f'; ctx.beginPath(); ctx.arc(f.dir*2,-6,5.5,0,7); ctx.fill();
+    ctx.fillStyle='#c0392b'; ctx.beginPath(); ctx.arc(f.dir*3,-6,2.6,0,7); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(f.dir*2,-7.5,1.3,0,7); ctx.fill();
   } else if(f.fly){
     // Schweber: Drohne / Qualle  (zoomer = mit Tempolinien)
     ctx.fillStyle=a; ctx.beginPath(); ctx.arc(0,-2,16,Math.PI,0); ctx.fill();
@@ -1396,6 +1653,7 @@ function drawBoss(){
     case 'floater': drawFloaterBoss(); break;
     case 'sun': drawSunBoss(); break;
     case 'duo': drawDuoBoss(); break;
+    case 'queen': drawQueenBoss(); break;
     default: drawGenericBoss();
   }
 }
@@ -1577,6 +1835,13 @@ function drawDuoBoss(){
   introArtist(x+boss.w*0.72, y+boss.h*0.52, 1.7, ARTIST_EVIL, -1, tnow*0.004, 1);
   ctx.restore();
 }
+function drawQueenBoss(){
+  const x=boss.x-game.camX, y=boss.y; if(x<-220||x>W+220) return;
+  const flash=bossFlash();
+  ctx.save(); if(flash){ ctx.globalAlpha=0.6; }
+  introQueen(x+boss.w/2, y+boss.h*0.5, 2.0, performance.now()*0.003);
+  ctx.restore();
+}
 function drawGenericBoss(){
   const x=boss.x-game.camX, y=boss.y; if(x<-160||x>W+160) return;
   const flash=bossFlash(); ctx.save(); ctx.translate(x+boss.w/2,y+boss.h/2);
@@ -1596,6 +1861,22 @@ function drawBossShots(){
     ctx.globalAlpha=0.3; ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(x,y,s.r+5,0,7); ctx.fill();
     ctx.globalAlpha=1; ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(x,y,s.r,0,7); ctx.fill();
     ctx.fillStyle='rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(x-s.r*0.3,y-s.r*0.3,s.r*0.38,0,7); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawPlayerShots(){
+  for(const s of playerShots){
+    const x=s.x-game.camX, y=s.y; if(x<-30||x>W+30) continue;
+    ctx.save(); ctx.translate(x,y);
+    // Flammenschweif
+    const dir=Math.sign(s.vx)||1;
+    ctx.globalAlpha=0.5; ctx.fillStyle='#ffd23f';
+    ctx.beginPath(); ctx.ellipse(-dir*s.r,0,s.r*1.3,s.r*0.55,0,0,7); ctx.fill();
+    ctx.globalAlpha=0.35; ctx.fillStyle='#ff5d8f';
+    ctx.beginPath(); ctx.arc(0,0,s.r+5,0,7); ctx.fill();
+    ctx.globalAlpha=1;
+    ctx.fillStyle='#ff7b3a'; ctx.beginPath(); ctx.arc(0,0,s.r,0,7); ctx.fill();
+    ctx.fillStyle='#ffe27a'; ctx.beginPath(); ctx.arc(-s.r*0.2,-s.r*0.2,s.r*0.45,0,7); ctx.fill();
     ctx.restore();
   }
 }
@@ -1739,6 +2020,28 @@ function drawPowerups(){
       ctx.fillStyle='#3ff0ff'; ctx.beginPath(); ctx.arc(0,0,2.6,0,7); ctx.fill();
       ctx.restore(); continue;
     }
+    if(u.type==='fire'){
+      // Feuer = Flamme
+      ctx.globalAlpha=0.24+Math.sin(u.t*2)*0.12; ctx.fillStyle='#ff9f43';
+      ctx.beginPath(); ctx.arc(0,0,18,0,7); ctx.fill(); ctx.globalAlpha=1;
+      ctx.fillStyle='#ff5d2a'; ctx.beginPath();
+      ctx.moveTo(0,-15); ctx.quadraticCurveTo(11,-2,6,8); ctx.quadraticCurveTo(2,15,0,15);
+      ctx.quadraticCurveTo(-2,15,-6,8); ctx.quadraticCurveTo(-11,-2,0,-15); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#ffd23f'; ctx.beginPath();
+      ctx.moveTo(0,-6); ctx.quadraticCurveTo(5,1,3,8); ctx.quadraticCurveTo(0,12,0,12);
+      ctx.quadraticCurveTo(-3,9,-3,4); ctx.quadraticCurveTo(-3,0,0,-6); ctx.closePath(); ctx.fill();
+      ctx.restore(); continue;
+    }
+    if(u.type==='spin'){
+      // Drehstern = funkelnder Stern, der sich dreht
+      ctx.globalAlpha=0.24+Math.sin(u.t*2)*0.12; ctx.fillStyle='#ffd23f';
+      ctx.beginPath(); ctx.arc(0,0,18,0,7); ctx.fill(); ctx.globalAlpha=1;
+      ctx.rotate(u.t*1.2);
+      ctx.fillStyle='#ffe27a'; star(0,0,14,6);
+      ctx.fillStyle='#ff9f43'; star(0,0,8,3.4);
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,2.4,0,7); ctx.fill();
+      ctx.restore(); continue;
+    }
     const c = u.type==='gold'
       ? {a:'#ffd23f', b:'#ff9f43', g:'#ffe27a'}
       : u.type==='rainbow'
@@ -1774,13 +2077,20 @@ function drawHUD(){
   ctx.fillStyle='rgba(11,4,32,.55)'; ctx.fillRect(0,0,W,40);
   ctx.fillStyle='#ffd23f'; ctx.font='12px "Press Start 2P", monospace';
   ctx.fillText(level.name, 14, 14);
-  // Leben (Herzen)
+  // Leben (Herzen) – Energie ist hart auf MAX_LIVES gedeckelt
+  if(game.lives>MAX_LIVES) game.lives=MAX_LIVES;
   for(let i=0;i<game.lives;i++) heart(W-28-i*30, 12, i<game.lives);
   // Münzen + Score
   ctx.fillStyle='#fff'; ctx.font='11px "Press Start 2P", monospace';
   ctx.textAlign='left';
   ctx.fillStyle='#ffd23f'; ctx.fillText('★ '+game.coins, 14, 46);
   ctx.fillStyle='#3ff0ff'; ctx.fillText('PKT '+game.score, 150, 46);
+  // Gate-Level: zeige gesammelte/gesamte Sterne dieser Welt, damit man "alles sammeln" schafft
+  if(level.gateToFinale && coins){
+    const got=coins.filter(c=>c.got).length, all=coins.length;
+    ctx.fillStyle = got===all ? '#5ad469' : '#ffd23f';
+    ctx.fillText('SAMMLE ALLE ★ '+got+'/'+all, W/2-130, 22);
+  }
   if(player.powers.size>0){
     let lbl=[];
     if(player.powers.has('turquoise')) lbl.push('✦');
@@ -1788,8 +2098,10 @@ function drawHUD(){
     if(player.powers.has('rainbow')) lbl.push('🌈');
     ctx.fillStyle='#9af7ea'; ctx.fillText(lbl.join(' '), 320, 46);
   }
-  if(player.freezeCharges>0){ ctx.fillStyle='#aef2ff'; ctx.fillText('❄'+player.freezeCharges, 410, 46); }
-  syncFreezeBtn();
+  if(player.freezeCharges>0){ ctx.fillStyle='#aef2ff'; ctx.fillText('❄'+player.freezeCharges, 398, 46); }
+  if(player.fireCharges>0){ ctx.fillStyle='#ff9f43'; ctx.fillText('🔥'+player.fireCharges, 446, 46); }
+  if(player.spinCharges>0){ ctx.fillStyle='#ffd23f'; ctx.fillText('✷'+player.spinCharges, 494, 46); }
+  syncAbilityBtns();
   // Continues ("Leben" in dieser Welt) als Mini-Pfaue
   ctx.fillStyle='#b39aff'; ctx.fillText('LEBEN', 540, 46);
   for(let i=0;i<game.continues;i++) contIcon(622+i*24, 51);
@@ -1838,6 +2150,7 @@ function render(){
   for(const f of foes) if(!f.dead) drawFoe(f);
   drawBoss();
   drawBossShots();
+  drawPlayerShots();
   drawParticles();
   if(game.state==='play'||game.state==='cleared'||game.paused) drawPlayer();
   drawFreezeFX();
@@ -1854,11 +2167,15 @@ function drawFreezeFX(){
   if(boss && !boss.defeated){ const x=boss.x-game.camX; if(x>-220&&x<W+220){ ctx.fillRect(x-4,boss.y-4,boss.w+8,boss.h+8); ctx.strokeRect(x-4,boss.y-4,boss.w+8,boss.h+8); } }
   ctx.restore();
 }
-// Schneeflocke auf dem Touch-Button nur zeigen, wenn Freeze verfügbar ist
-function syncFreezeBtn(){
-  const fb=el('freezeBtn'); if(!fb) return;
-  const has = !!(player && player.freezeCharges>0);
-  if(fb._has!==has){ fb._has=has; fb.textContent = has?'❄':''; fb.style.display = has?'flex':'none'; }
+// Touch-Buttons nur zeigen, wenn die jeweilige Fähigkeit verfügbar ist
+function syncAbilityBtn(id,available,glyph){
+  const b=el(id); if(!b) return;
+  if(b._has!==available){ b._has=available; b.textContent = available?glyph:''; b.style.display = available?'flex':'none'; }
+}
+function syncAbilityBtns(){
+  syncAbilityBtn('freezeBtn', !!(player && player.freezeCharges>0), '❄');
+  syncAbilityBtn('fireBtn',   !!(player && player.fireCharges>0),  '🔥');
+  syncAbilityBtn('spinBtn',   !!(player && player.spinCharges>0),  '✷');
 }
 
 /* ---------- ZUSTANDS-WECHSEL / OVERLAYS ---------- */
@@ -1890,7 +2207,7 @@ function showOverlay(name){
   if(name) ov[name].classList.add('show');
 }
 function startGame(){
-  game.levelIndex=0; game.lives=6; game.continues=3; game.score=0; game.coins=0;
+  game.levelIndex=0; game.lives=MAX_LIVES; game.continues=3; game.score=0; game.coins=0;
   game.paused=false; el('pause').classList.remove('show');
   loadLevel(0); game.state='play'; showOverlay(null);
   if(AC&&AC.state==='suspended') AC.resume();
@@ -1904,12 +2221,29 @@ function togglePause(){
 function levelCleared(){
   game.state='cleared'; sfx.win();
   const last = game.levelIndex===LEVELS.length-1;
-  el('clearedTitle').textContent = last? 'FINALE GESCHAFFT!' : 'WELT GESCHAFFT!';
+  const missed = coins.filter(c=>!c.got).length;
+  game.gatePassed = !level.gateToFinale || missed===0;
+  if(level.gateToFinale && !game.gatePassed){
+    // Boss besiegt, aber nicht alle Sterne -> Superfinaltest noch gesperrt
+    el('clearedTitle').textContent='FAST GESCHAFFT!';
+    el('clearedSub').innerHTML = `${level.boss} besiegt!<br>Aber es fehlen noch Sterne:<br>★ ${coins.length-missed} / ${coins.length}<br>Sammle ALLE, um zur ABZEICHENPARADE zu dürfen!`;
+    el('nextBtn').textContent='NOCHMAL SAMMELN';
+    showOverlay('cleared');
+    return;
+  }
+  el('clearedTitle').textContent = last? 'ALLES GESCHAFFT! 🌟' : (level.gateToFinale? 'ALLE STERNE! 🌟' : 'WELT GESCHAFFT!');
   el('clearedSub').innerHTML = `${level.boss} besiegt!<br>★ ${game.coins} Münzen &nbsp; PKT ${game.score}`;
-  el('nextBtn').textContent = last? 'FINALE SEHEN' : 'NÄCHSTE WELT';
+  el('nextBtn').textContent = last? 'FINALE SEHEN' : (level.gateToFinale? 'ZUR ABZEICHENPARADE ▸' : 'NÄCHSTE WELT');
   showOverlay('cleared');
 }
 function nextLevel(){
+  // Tor zum Superfinaltest nicht bestanden -> dieselbe Welt neu (alle Sterne sammeln)
+  if(game.gatePassed===false){
+    loadLevel(game.levelIndex); game.state='play'; showOverlay(null);
+    if(AC&&AC.state==='suspended') AC.resume();
+    startMusic(game.levelIndex);
+    return;
+  }
   if(game.levelIndex>=LEVELS.length-1){
     game.state='win'; stopMusic();
     el('winScore').innerHTML=`★ ${game.coins} Münzen<br>PKT ${game.score}`;
@@ -1967,7 +2301,7 @@ el('startBtn').onclick=startGame;
 el('retryBtn').onclick=()=>{
   if(game.continues>0){
     // Gleiche Welt erneut, volle Energie (6)
-    game.lives=6;
+    game.lives=MAX_LIVES;
     loadLevel(game.levelIndex); game.state='play'; showOverlay(null);
     if(AC&&AC.state==='suspended') AC.resume();
     startMusic(game.levelIndex);
@@ -2057,7 +2391,7 @@ const INTRO_SCENES=[
   { dur:5.0, cap:"Doch hoch über den Sternen lauerte die gemeine\nWELTRAUM-PFAUENKÖNIGIN.", draw:introScene1 },
   { dur:5.5, cap:"Mit ihren Superkräften verzauberte sie den\nPFAUEN-KÜNSTLER — und machte ihn böse.", draw:introScene2 },
   { dur:5.5, cap:"Seine bösen Tore rissen die Welten auf. Blume, Fisch\nund Schmetterling wurden zu finsteren Wächtern.", draw:introScene3 },
-  { dur:5.0, cap:"Zehn Welten, zehn Bosse — am Ende warten beide.\nNur DU kannst den Zauber brechen!", draw:introScene4 },
+  { dur:5.0, cap:"Viele Welten, viele Bosse — und am Ende der große\nSUPERFINALTEST. Nur DU kannst den Zauber brechen!", draw:introScene4 },
 ];
 function startIntro(){ intro.t=0; intro.scene=0; game.state='intro'; showOverlay(null); el('introUI').classList.add('show'); }
 function introAdvance(){ if(game.state!=='intro') return; intro.scene++; intro.t=0; if(intro.scene>=INTRO_SCENES.length) endIntro(); }
