@@ -43,7 +43,7 @@
   /* scanline atmosphere */
   #wrap::after{
     content:"";position:absolute;inset:0;pointer-events:none;
-    background:repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.10) 2px 4px);
+    background:repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 3px, rgba(0,0,0,.025) 3px 4px);
     mix-blend-mode:multiply;
   }
   .overlay{
@@ -127,9 +127,33 @@
   .hsrow span:last-child{color:var(--cyan);}
   .hsrow.me{color:#160a33;background:linear-gradient(180deg,#ffe27a,var(--neon));border-color:#b88a00;}
   .hsrow.me span:last-child{color:#7a1442;}
+
+  /* iPhone-Querformat: kompaktere Controls. iPad bleibt unberührt (Höhe immer > 480px). */
+  @media (max-height:480px){
+    #stick{ width:clamp(96px,30vmin,140px);height:clamp(96px,30vmin,140px);
+            left:max(12px,env(safe-area-inset-left));bottom:max(10px,env(safe-area-inset-bottom)); }
+    .tbtn{ width:clamp(58px,17vmin,84px);height:clamp(58px,17vmin,84px);font-size:clamp(20px,7vmin,32px);border-radius:18px; }
+    .pad{ bottom:max(12px,env(safe-area-inset-bottom));gap:clamp(10px,3vmin,18px); }
+    .right{ right:max(12px,env(safe-area-inset-right)); }
+    .pausebtn{ width:clamp(38px,9vmin,46px);height:clamp(38px,9vmin,46px);font-size:clamp(14px,4vmin,20px); }
+  }
+  /* Handy im Hochformat: zum Querdrehen auffordern (iPad/Tablet nicht betroffen) */
+  #rotateHint{ display:none; }
+  @media (orientation:portrait) and (max-width:540px){
+    #rotateHint{
+      display:flex;position:fixed;inset:0;z-index:60;
+      flex-direction:column;align-items:center;justify-content:center;gap:16px;
+      background:radial-gradient(120% 90% at 50% 12%, #2b0f5e, #05010f);
+      color:var(--neon);text-align:center;font-family:inherit;
+      font-size:13px;line-height:2;padding:10%;
+    }
+    #rotateHint .big{ font-size:44px;animation:rot 2s ease-in-out infinite; }
+    @keyframes rot{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(78deg)}}
+  }
 </style>
 </head>
 <body>
+<div id="rotateHint"><div class="big">📱</div>Bitte Gerät<br>quer drehen</div>
 <div id="wrap">
   <canvas id="game" width="960" height="540"></canvas>
 
@@ -138,7 +162,7 @@
     <div class="tbtn pausebtn" data-k="pause">⏸</div>
     <div id="stick"><div id="stickKnob"></div></div>
     <div class="pad right">
-      <div class="tbtn" data-k="spin">↻</div>
+      <div class="tbtn" id="freezeBtn" data-k="freeze"></div>
       <div class="tbtn" data-k="jump">⤒</div>
     </div>
   </div>
@@ -167,7 +191,10 @@
       <button class="btn mini" id="muteBtn">TON AN / AUS</button>
       <button class="btn mini" id="restartBtn">NEUSTART</button>
     </div>
-    <button class="btn mini" id="touchBtn">TOUCH-STEUERUNG: AUTO</button>
+    <div class="namerow">
+      <button class="btn mini" id="musicBtn">MUSIK: AN</button>
+      <button class="btn mini" id="touchBtn">TOUCH-STEUERUNG: AUTO</button>
+    </div>
     <div class="hstitle" style="color:#ff5d8f">ABZEICHEN</div>
     <button class="btn mini badgebtn" id="badgeBtn">▲ ABGRUNDSHOCHSPRUNG: AUS</button>
     <div class="keys">Rotes Abzeichen = Rettungssprung über Abgründen<br><kbd>P</kbd> / <kbd>Esc</kbd> fortsetzen</div>
@@ -257,8 +284,79 @@ const sfx={
   power(){[440,660,880,1100].forEach((f,i)=>setTimeout(()=>beep(f,0.1,'triangle',0.06),i*70));},
   spin(){beep(680,0.07,'sawtooth',0.05); setTimeout(()=>beep(1020,0.08,'sawtooth',0.05),55);},
   charge(){beep(150,0.55,'sawtooth',0.05);},
-  zap(){beep(80,0.3,'sawtooth',0.09); setTimeout(()=>beep(1500,0.12,'square',0.07),40);}
+  zap(){beep(80,0.3,'sawtooth',0.09); setTimeout(()=>beep(1500,0.12,'square',0.07),40);},
+  freeze(){[1320,990,740,560].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'sine',0.05),i*55));}
 };
+
+/* ---------- HINTERGRUNDMUSIK (prozedural, je Welt eine eigene) ---------- */
+let musicOn = true;
+try{ musicOn = localStorage.getItem('sh_music')!=='0'; }catch(e){}
+let musicGain=null, musicTimer=null, musicStep=0, musicNextT=0, musicWorld=0, musicPlaying=false;
+const NOTE={ '0':0,
+  C3:130.81,D3:146.83,Eb3:155.56,E3:164.81,F3:174.61,G3:196.00,Ab3:207.65,A3:220.00,Bb3:233.08,B3:246.94,
+  C4:261.63,D4:293.66,Eb4:311.13,E4:329.63,F4:349.23,Fs4:369.99,G4:392.00,Ab4:415.30,A4:440.00,Bb4:466.16,B4:493.88,
+  C5:523.25,D5:587.33,Eb5:622.25,E5:659.25,F5:698.46,G5:783.99,A5:880.00,B5:987.77 };
+function freqOf(s){ return typeof s==='number'? s : (NOTE[s]||0); }
+function trk(tempo,wave,lead,bass){ return {tempo,wave,lead:lead.split(/\s+/),bass:bass.split(/\s+/)}; }
+const MUSIC_TRACKS=[
+  trk(140,'square','C5 E5 G5 E5 F5 A5 G5 0 E5 G5 C5 E5 D5 B4 C5 0','C3 G3 F3 G3 C3 G3 G3 G3'),   // 1 Blumenwiese – fröhlich
+  trk(108,'triangle','A4 0 C5 E5 D5 0 B4 0 C5 0 A4 G4 A4 0 E4 0','A3 A3 F3 F3 G3 G3 E3 E3'),      // 2 Sternennacht – ruhig
+  trk(120,'square','E5 D5 C5 D5 E5 G5 E5 0 A4 C5 E5 D5 C5 B4 0 0','A3 A3 E3 E3 F3 F3 G3 G3'),     // 3 Lila Nebel – verträumt
+  trk(100,'sawtooth','D4 0 F4 0 E4 0 D4 0 G4 0 F4 E4 D4 0 0 0','D3 D3 D3 D3 Bb3 Bb3 A3 A3'),       // 4 Roter Abgrund – düster
+  trk(126,'triangle','D5 F5 A5 F5 G5 0 E5 0 D5 F5 D5 C5 D5 0 A4 0','D3 D3 A3 A3 Bb3 Bb3 A3 A3'),   // 5 Karamell-Sterne
+  trk(116,'square','E5 B4 D5 B4 C5 A4 B4 0 E5 D5 C5 B4 A4 0 0 0','E3 E3 C4 C4 A3 A3 B3 B3'),       // 6 Sternendieb – geheimnisvoll
+  trk(134,'square','A5 G5 E5 G5 A5 0 B5 A5 G5 E5 D5 E5 G5 0 E5 0','A3 A3 E3 E3 F3 F3 G3 G3'),      // 7 Pink-Nebel – verspielt
+  trk(104,'triangle','G4 B4 D5 B4 C5 E5 C5 0 A4 C5 E5 D5 B4 G4 0 0','G3 G3 C4 C4 A3 A3 D4 D4'),    // 8 Galaxien – schwebend
+  trk(150,'square','G5 G5 A5 B5 C5 0 E5 G5 F5 E5 D5 C5 D5 E5 C5 0','C3 G3 F3 G3 C3 G3 F3 G3'),     // 9 Sonne – energetisch
+  trk(128,'square','A5 E5 A5 B5 C5 B4 A4 0 F5 E5 D5 C5 B4 A4 E5 0','A3 A3 F3 F3 G3 G3 E3 E3')      // 10 Finale – episch
+];
+function musicNote(freq,t,dur,wave,vol){
+  if(!AC||!freq||!musicGain) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=wave; o.frequency.value=freq;
+  o.connect(g); g.connect(musicGain);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(vol,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.start(t); o.stop(t+dur+0.03);
+}
+function musicTick(){
+  if(!AC||!musicPlaying||!musicGain) return;
+  const tr=MUSIC_TRACKS[musicWorld % MUSIC_TRACKS.length];
+  const stepDur=(60/tr.tempo)*0.5;     // Achtelschritt
+  while(musicNextT < AC.currentTime + 0.25){
+    const i=musicStep % tr.lead.length;
+    const lead=freqOf(tr.lead[i]);
+    const bass=freqOf(tr.bass[i % tr.bass.length]);
+    if(lead) musicNote(lead, musicNextT, stepDur*0.92, tr.wave, 0.045);
+    if(bass) musicNote(bass, musicNextT, stepDur*1.7, 'triangle', 0.05);
+    musicNextT += stepDur;
+    musicStep++;
+  }
+}
+function startMusic(worldIdx){
+  if(!musicOn) return;
+  try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+  if(AC.state==='suspended'){ try{AC.resume();}catch(e){} }
+  if(!musicGain){ musicGain=AC.createGain(); musicGain.gain.value=0.0001; musicGain.connect(AC.destination); }
+  musicWorld=worldIdx|0; musicStep=0; musicNextT=AC.currentTime+0.08; musicPlaying=true;
+  try{ musicGain.gain.cancelScheduledValues(AC.currentTime);
+       musicGain.gain.setValueAtTime(Math.max(0.0001,musicGain.gain.value),AC.currentTime);
+       musicGain.gain.linearRampToValueAtTime(0.5, AC.currentTime+0.7); }catch(e){}
+  if(!musicTimer) musicTimer=setInterval(musicTick,55);
+}
+function stopMusic(){
+  musicPlaying=false;
+  if(musicTimer){ clearInterval(musicTimer); musicTimer=null; }
+  if(musicGain&&AC){ try{ musicGain.gain.cancelScheduledValues(AC.currentTime);
+    musicGain.gain.setValueAtTime(musicGain.gain.value,AC.currentTime);
+    musicGain.gain.linearRampToValueAtTime(0.0001,AC.currentTime+0.25);}catch(e){} }
+}
+function setMusic(on){
+  musicOn=on; try{ localStorage.setItem('sh_music', on?'1':'0'); }catch(e){}
+  if(on){ if(game.state==='play'||game.paused) startMusic(game.levelIndex); }
+  else stopMusic();
+}
 
 /* ---------- LEVEL-BAU-HELFER ---------- */
 const T=40;
@@ -556,6 +654,7 @@ const game = {
   score:0,
   coins:0,
   camX:0,
+  freezeT:0,          // Einfrier-Timer (Freeze-Power-up)
   checkX:80, checkY:380,
 };
 let level, player, foes, coins, powerups, boss, particles=[], platforms=[], bossShots=[], checkpoints=[];
@@ -572,7 +671,7 @@ function makeBoss(L){
   if(type==='butterfly'){ const w=108,h=80,baseY=GROUND_Y-h-140; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-230,max:x+190,speed:115,speedMax:205,flap:0}); }
   if(type==='artist'){ const w=80,h=104; return Object.assign(base,{x,y:GROUND_Y-h,w,h,min:x-220,max:x+150,speed:0,mode:'idle',phaseT:2.4,doorProg:0,newX:x,brush:0}); }
   if(type==='sunfairy'){ const w=86,h=92,baseY=GROUND_Y-h-50; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-220,max:x+180,speed:92,speedMax:160,flap:0}); }
-  if(type==='starthief'){ const w=80,h=84,baseY=GROUND_Y-h-120; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-240,max:x+200,speed:175,speedMax:280,dashT:1.5}); }
+  if(type==='starthief'){ const w=80,h=84,baseY=GROUND_Y-h-56; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-240,max:x+200,speed:175,speedMax:280,dashT:1.5}); }
   if(type==='plant'){ const w=94,h=130; return Object.assign(base,{x,y:GROUND_Y-h,w,h,min:x-160,max:x+150,speed:45,speedMax:120,sway:0,mode:'idle',phaseT:2.0,lungeT:0}); }
   if(type==='floater'){ const w=92,h=110,baseY=GROUND_Y-h-120; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-200,max:x+170,speed:70,speedMax:130,arm:0}); }
   if(type==='sun'){ const w=120,h=120,baseY=GROUND_Y-h-90; return Object.assign(base,{x,y:baseY,w,h,baseY,min:x-160,max:x+140,speed:55,speedMax:120,charge:0}); }
@@ -687,7 +786,7 @@ function updateSunFairyBoss(dt){
   }
 }
 function updateStarThiefBoss(dt){
-  const p=player; boss.phase+=dt*2.6; boss.y=boss.baseY+Math.sin(boss.phase)*54;
+  const p=player; boss.phase+=dt*2.6; boss.y=boss.baseY+Math.sin(boss.phase)*40;
   boss.dashT-=dt;
   if(boss.dashT<=0){ boss.dir=Math.sign((p.x+p.w/2)-(boss.x+boss.w/2))||boss.dir; boss.dashT=1.1+Math.random()*0.7; }
   bossPatrolX(dt); boss.vulnerable=true; boss.atkT-=dt;
@@ -759,11 +858,14 @@ function loadLevel(i){
   level = LEVELS[i];
   player = { x:level.start.x, y:level.start.y, w:30, h:38, vx:0, vy:0,
              onGround:false, facing:1, inv:0, coyote:0, jbuf:0, squash:1, anim:0,
-             powers:new Set(), gliding:false, spinT:0, spinCd:0, airJumps:0, ride:null, press:0, rescueReady:true };
+             powers:new Set(), gliding:false, spinT:0, spinCd:0, airJumps:0, freezeCharges:0, ride:null, press:0, rescueReady:true };
   platforms = level.platforms.map(p=>Object.assign({},p));
   foes = level.enemies.map(e=>Object.assign({},e,{dead:false,phase:Math.random()*6}));
   coins = level.coins.map(c=>({x:c.x,y:c.y,got:false,t:Math.random()*6}));
   powerups = level.powerups.map(u=>({x:u.x,y:u.y,type:u.type,got:false,t:Math.random()*6}));
+  // Freeze-Power-up je Welt (kurz vor dem Boss platziert), damit die Einfrier-Fähigkeit verfügbar ist
+  powerups.push({ x:Math.max(360,(level.bossX||level.width-600)-520), y:360, type:'freeze', got:false, t:Math.random()*6 });
+  game.freezeT=0;
   checkpoints = (level.checkpoints||[]).map(c=>({x:c.x, y:GROUND_Y-player.h-4, on:false}));
   boss = makeBoss(level);
   particles=[]; bossShots=[];
@@ -773,7 +875,7 @@ function loadLevel(i){
 
 /* ---------- EINGABE ---------- */
 const keys={left:false,right:false,jump:false};
-let jumpEdge=false, spinEdge=false;
+let jumpEdge=false, freezeEdge=false;
 function setKey(k,v){
   if(k==='left')keys.left=v;
   else if(k==='right')keys.right=v;
@@ -786,7 +888,7 @@ addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A') setKey('left',true);
   else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D') setKey('right',true);
   else if(e.key===' '||e.key==='Spacebar'||e.key==='ArrowUp'||e.key==='w'||e.key==='W') setKey('jump',true);
-  else if(e.key==='x'||e.key==='X'||e.key==='k'||e.key==='K'||e.key==='Shift') spinEdge=true;
+  else if(e.key==='f'||e.key==='F'||e.key==='Shift') freezeEdge=true;
   else if(e.key==='m'||e.key==='M'){ muted=!muted; }
   else if(e.key==='p'||e.key==='P'||e.key==='Escape'){ togglePause(); }
 });
@@ -811,8 +913,8 @@ addEventListener('keydown', e=>{ if(lastInputTouch && GAME_KEYS.includes(e.key))
 applyTouchUI();
 document.querySelectorAll('.tbtn').forEach(b=>{
   const k=b.dataset.k;
-  const on=e=>{e.preventDefault(); if(k==='spin') spinEdge=true; else if(k==='pause') togglePause(); else setKey(k,true);};
-  const off=e=>{e.preventDefault(); if(k!=='spin'&&k!=='pause') setKey(k,false);};
+  const on=e=>{e.preventDefault(); if(k==='freeze') freezeEdge=true; else if(k==='pause') togglePause(); else setKey(k,true);};
+  const off=e=>{e.preventDefault(); if(k!=='freeze'&&k!=='pause') setKey(k,false);};
   b.addEventListener('touchstart',on,{passive:false});
   b.addEventListener('touchend',off,{passive:false});
   b.addEventListener('touchcancel',off,{passive:false});
@@ -960,22 +1062,21 @@ function update(dt){
       addParticles(p.x+p.w/2,p.y+p.h,'#ff5d8f',7); addParticles(p.x+p.w/2,p.y+p.h,'#3ff0ff',6);
     }
   }
-  if(!keys.jump && p.vy<0){ p.vy*=0.55; } // loslassen = kürzer springen
+  if(!keys.jump && p.vy < JUMP*0.85){ p.vy = JUMP*0.85; } // variabler Sprung, aber Mindesthöhe (Touch-Tap-Fix)
 
   // Türkis-Pfau: Schweben (langsames Gleiten beim Halten der Sprungtaste)
   p.gliding = (p.powers.has('turquoise') && !p.onGround && keys.jump && p.vy>40);
   if(p.gliding && p.vy>80) p.vy=80;
 
-  // Drehattacke (nur mit Türkis-Stern)
-  if(p.spinCd>0) p.spinCd-=dt;
-  if(spinEdge){
-    if(p.powers.has('turquoise') && p.spinT<=0 && p.spinCd<=0){
-      p.spinT=0.45; p.spinCd=0.7; sfx.spin();
-      if(!p.onGround) p.vy=Math.min(p.vy,-200);   // kleiner Auftrieb = schweben
+  // Einfrieren (Freeze-Power-up): Bosse & Gegner kurz einfrieren
+  if(freezeEdge){
+    if(p.freezeCharges>0 && game.freezeT<=0){
+      game.freezeT=2.6; p.freezeCharges--; sfx.freeze();
+      addParticles(p.x+p.w/2,p.y+p.h/2,'#aef2ff',24);
     }
-    spinEdge=false;
+    freezeEdge=false;
   }
-  if(p.spinT>0) p.spinT-=dt;
+  if(game.freezeT>0) game.freezeT-=dt;
 
   // bewegliche Plattformen + Mitnahme des Spielers
   updatePlatforms(dt);
@@ -996,60 +1097,47 @@ function update(dt){
   if(p.y>H+80){ respawnFromPit(); }
 
   // GEGNER
+  const frozen = game.freezeT>0;
   for(const f of foes){
     if(f.dead) continue;
-    if(f.type==='hopper'){
-      f.vy=(f.vy||0)+GRAV*dt; f.y+=f.vy*dt;
-      if(f.y>=f.baseY){ f.y=f.baseY; f.vy=0; f.hopT=(f.hopT||0)-dt; if(f.hopT<=0){ f.vy=-560; f.hopT=0.8+Math.random()*0.6; } }
-      f.x += f.dir*f.speed*dt;
-      if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
-    } else {
-      f.x += f.dir*f.speed*dt;
-      if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
-      if(f.fly){ f.phase+=dt*(f.type==='zoomer'?5:3); f.y=f.baseY+Math.sin(f.phase)*(f.type==='zoomer'?26:16); }
+    if(!frozen){
+      if(f.type==='hopper'){
+        f.vy=(f.vy||0)+GRAV*dt; f.y+=f.vy*dt;
+        if(f.y>=f.baseY){ f.y=f.baseY; f.vy=0; f.hopT=(f.hopT||0)-dt; if(f.hopT<=0){ f.vy=-560; f.hopT=0.8+Math.random()*0.6; } }
+        f.x += f.dir*f.speed*dt;
+        if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
+      } else {
+        f.x += f.dir*f.speed*dt;
+        if(f.x<f.min){ f.x=f.min; f.dir=1; } else if(f.x>f.max){ f.x=f.max; f.dir=-1; }
+        if(f.fly){ f.phase+=dt*(f.type==='zoomer'?5:3); f.y=f.baseY+Math.sin(f.phase)*(f.type==='zoomer'?26:16); }
+      }
     }
     if(overlap(p,f)){
       const fromTop=(prevBottom)-f.y, canStomp=(f.type!=='spiker');
       if(p.vy>0 && fromTop< f.h*0.8 && canStomp){
         f.dead=true; p.vy=-360; game.score+=200; sfx.stomp();
         addParticles(f.x+f.w/2,f.y+f.h/2,level.theme.accent,10);
-      } else if(p.spinT<=0) hurtPlayer();
+      } else if(!frozen) hurtPlayer();
     }
   }
 
   // BOSS
   if(boss && !boss.defeated){
     boss.inv=Math.max(0,boss.inv-dt);
-    updateBoss(dt);
+    if(!frozen) updateBoss(dt);
     if(boss.vulnerable && overlap(p,boss)){
       const fromTop=prevBottom-boss.y;
       if(p.vy>0 && fromTop<boss.h*0.55 && boss.inv<=0){ p.vy=-430; damageBoss(1); }
-      else if(boss.inv<=0 && p.spinT<=0){ hurtPlayer(); }
-    }
-  }
-
-  // Drehattacke trifft Gegner, Boss & Projektile in der Nähe
-  if(p.spinT>0){
-    const cx=p.x+p.w/2, cy=p.y+p.h/2, R=36;
-    for(const f of foes){
-      if(f.dead) continue;
-      if(Math.hypot((f.x+f.w/2)-cx,(f.y+f.h/2)-cy)<R){
-        f.dead=true; game.score+=200; sfx.stomp();
-        addParticles(f.x+f.w/2,f.y+f.h/2,level.theme.accent,10);
-      }
-    }
-    for(const s of bossShots){ if(s.life>0 && Math.hypot(s.x-cx,s.y-cy)<R+s.r){ s.life=0; addParticles(s.x,s.y,s.color,5); } }
-    if(boss && !boss.defeated && boss.vulnerable && boss.inv<=0){
-      const bx=boss.x+boss.w/2, by=boss.y+boss.h/2;
-      if(Math.hypot(bx-cx,by-cy) < R+boss.w*0.5) damageBoss(1);
+      else if(!frozen && boss.inv<=0){ hurtPlayer(); }
     }
   }
 
   // BOSS-PROJEKTILE
   for(const s of bossShots){
+    if(frozen) continue;   // eingefroren: Projektile pausieren
     s.life-=dt; s.spin+=dt*8;
     s.vy+=s.grav*dt; s.x+=s.vx*dt; s.y+=s.vy*dt;
-    if(s.life>0 && p.inv<=0 && p.spinT<=0 &&
+    if(s.life>0 && p.inv<=0 &&
        Math.hypot((p.x+p.w/2)-s.x,(p.y+p.h/2)-s.y) < s.r+10){ s.life=0; hurtPlayer(); }
   }
   bossShots=bossShots.filter(s=>s.life>0 && s.y<H+90 && s.x>-120 && s.x<level.width+120);
@@ -1071,6 +1159,7 @@ function update(dt){
     if(Math.abs(pcx-u.x)<28 && Math.abs(pcy-u.y)<32){
       u.got=true; p.inv=Math.max(p.inv,0.3); sfx.power();
       if(u.type==='life'){ game.lives=Math.min(game.lives+1,9); game.score+=200; addParticles(u.x,u.y,'#ff5d8f',20); }
+      else if(u.type==='freeze'){ p.freezeCharges=Math.min(p.freezeCharges+2,3); game.score+=300; addParticles(u.x,u.y,'#aef2ff',20); }
       else { p.powers.add(u.type); if(u.type==='rainbow') p.airJumps=1; game.score+=300;
              addParticles(u.x,u.y, u.type==='gold'?'#ffd23f':u.type==='rainbow'?'#fff':'#3ff0ff',18); }
     }
@@ -1604,6 +1693,17 @@ function drawPowerups(){
       ctx.fillStyle='rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(-4,-4,2,0,7); ctx.fill();
       ctx.restore(); continue;
     }
+    if(u.type==='freeze'){
+      ctx.globalAlpha=0.22+Math.sin(u.t*2)*0.12; ctx.fillStyle='#aef2ff';
+      ctx.beginPath(); ctx.arc(0,0,18,0,7); ctx.fill(); ctx.globalAlpha=1;
+      ctx.strokeStyle='#eaffff'; ctx.lineWidth=2.4; ctx.lineCap='round';
+      for(let i=0;i<6;i++){ ctx.save(); ctx.rotate(i*Math.PI/3);
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-12);
+        ctx.moveTo(0,-7); ctx.lineTo(-4,-10); ctx.moveTo(0,-7); ctx.lineTo(4,-10); ctx.stroke();
+        ctx.restore(); }
+      ctx.fillStyle='#3ff0ff'; ctx.beginPath(); ctx.arc(0,0,2.6,0,7); ctx.fill();
+      ctx.restore(); continue;
+    }
     const c = u.type==='gold'
       ? {a:'#ffd23f', b:'#ff9f43', g:'#ffe27a'}
       : u.type==='rainbow'
@@ -1653,6 +1753,8 @@ function drawHUD(){
     if(player.powers.has('rainbow')) lbl.push('🌈');
     ctx.fillStyle='#9af7ea'; ctx.fillText(lbl.join(' '), 320, 46);
   }
+  if(player.freezeCharges>0){ ctx.fillStyle='#aef2ff'; ctx.fillText('❄'+player.freezeCharges, 410, 46); }
+  syncFreezeBtn();
   if(game.badge){ ctx.fillStyle='#ff3b3b'; ctx.fillText('▲', 470, 46); }
   if(muted){ ctx.fillStyle='#9a86d8'; ctx.fillText('🔇 (M)', W-110, 46); }
 
@@ -1689,7 +1791,25 @@ function render(){
   drawBossShots();
   drawParticles();
   if(game.state==='play'||game.state==='cleared'||game.paused) drawPlayer();
+  drawFreezeFX();
   if(game.state==='play'||game.state==='cleared'||game.paused) drawHUD();
+}
+// Eis-Overlay über eingefrorenen Gegnern/Boss
+function drawFreezeFX(){
+  if(!(game.freezeT>0) || !foes) return;
+  ctx.save();
+  ctx.fillStyle='rgba(120,220,255,0.10)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(170,238,255,0.28)'; ctx.strokeStyle='rgba(255,255,255,0.75)'; ctx.lineWidth=2;
+  for(const f of foes){ if(f.dead) continue; const x=f.x-game.camX; if(x<-50||x>W+50) continue;
+    ctx.fillRect(x-3,f.y-3,f.w+6,f.h+6); ctx.strokeRect(x-3,f.y-3,f.w+6,f.h+6); }
+  if(boss && !boss.defeated){ const x=boss.x-game.camX; if(x>-220&&x<W+220){ ctx.fillRect(x-4,boss.y-4,boss.w+8,boss.h+8); ctx.strokeRect(x-4,boss.y-4,boss.w+8,boss.h+8); } }
+  ctx.restore();
+}
+// Schneeflocke auf dem Touch-Button nur zeigen, wenn Freeze verfügbar ist
+function syncFreezeBtn(){
+  const fb=el('freezeBtn'); if(!fb) return;
+  const has = !!(player && player.freezeCharges>0);
+  if(fb._has!==has){ fb._has=has; fb.textContent = has?'❄':''; fb.style.opacity = has?'1':'0.4'; }
 }
 
 /* ---------- ZUSTANDS-WECHSEL / OVERLAYS ---------- */
@@ -1725,6 +1845,7 @@ function startGame(){
   game.paused=false; el('pause').classList.remove('show');
   loadLevel(0); game.state='play'; showOverlay(null);
   if(AC&&AC.state==='suspended') AC.resume();
+  startMusic(0);
 }
 function togglePause(){
   if(game.state!=='play') return;
@@ -1742,7 +1863,7 @@ function levelCleared(){
 }
 function nextLevel(){
   if(game.levelIndex>=LEVELS.length-1){
-    game.state='win';
+    game.state='win'; stopMusic();
     el('winScore').innerHTML=`★ ${game.coins} Münzen<br>PKT ${game.score}`;
     el('winNameRow').style.display='flex';
     el('winName').value='';
@@ -1752,6 +1873,7 @@ function nextLevel(){
     return;
   }
   game.levelIndex++; loadLevel(game.levelIndex); game.state='play'; showOverlay(null);
+  startMusic(game.levelIndex);
 }
 function magicKill(){
   if(game.state!=='play') return;
@@ -1763,7 +1885,7 @@ function magicKill(){
 }
 function gameOver(reason){
   if(game.state==='over') return;
-  game.state='over';
+  game.state='over'; stopMusic();
   const head = reason ? `<span style="color:#ff5d8f">${reason}</span><br>` : '';
   el('overSub').innerHTML=`${head}Du kamst bis<br>${level.name}<br>★ ${game.coins} &nbsp; PKT ${game.score}`;
   el('overNameRow').style.display='flex';
@@ -1976,6 +2098,9 @@ updateBadgeBtn();
 function updateTouchBtn(){ el('touchBtn').textContent='TOUCH-STEUERUNG: '+(touchMode==='auto'?'AUTO':touchMode==='on'?'AN':'AUS'); }
 el('touchBtn').onclick=()=>{ touchMode = touchMode==='auto'?'on':touchMode==='on'?'off':'auto'; try{ localStorage.setItem('sh_touch', touchMode); }catch(e){} applyTouchUI(); updateTouchBtn(); };
 updateTouchBtn();
+function updateMusicBtn(){ el('musicBtn').textContent='MUSIK: '+(musicOn?'AN':'AUS'); }
+el('musicBtn').onclick=()=>{ setMusic(!musicOn); updateMusicBtn(); };
+updateMusicBtn();
 loadLevel(0); // Welt/Hintergrund hinter dem Intro vorbereiten
 startIntro();
 requestAnimationFrame(frame);
