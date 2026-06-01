@@ -603,11 +603,11 @@ const LEVELS = [
     powerups:[ {x:300,y:360,type:'turquoise'},{x:2700,y:360,type:'life'},{x:4200,y:360,type:'fire'},{x:5400,y:360,type:'rainbow'} ],
     checkpoints:[ cp(1400), cp(2900), cp(4400) ] },
   { name:"★ Final-Test: Intergalaktische Bossparade", world:6, slot:3, theme:TH.bonus, width:3000, start:{x:80,y:380},
-    bossParade:[{"type":"sunfairy","name":"Solana, die Sonnenfee","hp":5},{"type":"starthief","name":"Sternfried, der Sternendieb","hp":5},{"type":"plant","name":"Schnapphilde, die Fleischfresserin","hp":5},{"type":"floater","name":"Levitor, der Schwebemeister","hp":6},{"type":"sun","name":"Helios, die Glühkugel","hp":6}], bossX:2800,
+    bossParade:[{"type":"sunfairy","name":"Solana, die Sonnenfee","hp":1},{"type":"starthief","name":"Sternfried, der Sternendieb","hp":1},{"type":"plant","name":"Schnapphilde, die Fleischfresserin","hp":2},{"type":"floater","name":"Levitor, der Schwebemeister","hp":2},{"type":"sun","name":"Helios, die Glühkugel","hp":2}], bossX:2800,
     platforms:[ ...gnd([[0,3000]]), plat(300,281,124), plat(683,318,129), plat(1067,301,113), plat(1450,325,131), plat(1833,339,117), plat(2217,280,134) ],
     coins:[ ...coinRow(310,251,3), ...coinRow(693,288,3), ...coinRow(1077,271,3), ...coinRow(1460,295,3), ...coinRow(1843,309,3), ...coinRow(2227,250,3) ],
     enemies:[ foe(375,426,260,490,{type:'spiker',speed:122}), foe(1078,426,960,1196,{type:'shooter',speed:109}), foe(1760,426,1660,1859,{type:'spiker',speed:106}), foe(610,426,500,720,{type:'shooter',speed:90}), foe(2210,426,2100,2320,{type:'shooter',speed:90}) ],
-    powerups:[ {x:210,y:360,type:'fire'},{x:900,y:360,type:'spin'},{x:1800,y:360,type:'life'} ],
+    powerups:[ {x:210,y:360,type:'fire'},{x:900,y:360,type:'spin'},{x:1800,y:360,type:'life'},{x:2650,y:360,type:'life'} ],
     checkpoints:[] },
   { name:"★ Superfinal-Test: Abzeichen-Parade", world:6, slot:4, theme:TH.finale, width:3000, start:{x:80,y:380},
     boss:"Zworg & Pfaunilde · Das Böse Paar", bossType:"duo", bossHp:20, bossX:2700, requireBadges:true,
@@ -916,6 +916,18 @@ function updateGenericBoss(dt){
   boss.vulnerable=true;
 }
 
+/* Checkpoint-x auf festen Boden ziehen, damit der Respawn nie in einem Loch (oder Lava) landet */
+function snapCheckpointX(x){
+  const segs = platforms.filter(p=>p.y===GROUND_Y && p.h===GROUND_H && p.kind!=='lava')
+                        .map(p=>({a:p.x, b:p.x+p.w})).sort((s,t)=>s.a-t.a);
+  if(!segs.length) return x;
+  const m = 30;                                  // Rand, damit der Spieler ganz auf dem Boden steht
+  for(const s of segs){ if(x>=s.a+m && x<=s.b-m) return x; }   // schon sicher? dann lassen
+  let best=null, bd=Infinity;                    // sonst nächstes breites Segment, möglichst vor dem Abgrund
+  for(const s of segs){ if(s.b-s.a < 2*m+10) continue; const c=Math.max(s.a+m, Math.min(s.b-m, x)); const d=Math.abs(c-x); if(d<bd){ bd=d; best=c; } }
+  return best!=null ? best : x;
+}
+
 function loadLevel(i){
   level = LEVELS[i];
   player = { x:level.start.x, y:level.start.y, w:30, h:38, vx:0, vy:0,
@@ -930,7 +942,7 @@ function loadLevel(i){
   powerups.push({ x:Math.max(360,(level.bossX||level.width-560)-460), y:360, type:'freeze', got:false, t:Math.random()*6 });
   game.freezeT=0;
   hazards = (level.hazards||[]).map(h=>Object.assign({},h));
-  checkpoints = (level.checkpoints||[]).map(c=>({x:c.x, y:GROUND_Y-player.h-4, on:false}));
+  checkpoints = (level.checkpoints||[]).map(c=>({x:snapCheckpointX(c.x), y:GROUND_Y-player.h-4, on:false}));
   // Boss nur in Boss-Leveln (Slot 4) oder Bossparade; sonst Ziel-Portal am Ende
   game.paradeIdx=0; game.reachedGoal=false;
   if(level.bossParade){ boss = spawnParadeBoss(level.bossParade[0], level); goal=null; }
